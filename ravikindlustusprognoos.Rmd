@@ -1,0 +1,315 @@
+---
+title: "Tervisekindlustuse makse prognoosimine"
+author: "Georg Klettenberg"
+date: "2026-04-24"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+---
+# 1. Sissejuhatus
+Projekti eesmärk on prognoosida järgmise perioodi tervisekindlustusmakset kaks kuud enne kindlustusperioodi lõppu. Kuna algandmestikus puudus ajaline mõõde, lisasin sünteetilise 12 kuu ajaloo ning arvutasin kulupõhised tunnused.
+
+# 2. Andmestiku kirjeldus
+```{r, message=F, warning=F, error=F, echo=F}
+# Loeme andmed sisse
+andmed <- read.csv("C:\\Users\\georg\\Downloads\\simulated_insurance_panel.csv")
+library(dplyr)
+library(knitr)
+
+
+# Andmestiku mõõtmed
+cat("### Andmestiku mõõtmed\n")
+cat("Ridade arv:", nrow(andmed), "\n")
+cat("Veergude arv:", ncol(andmed), "\n\n")
+
+# Struktuur
+cat("### Andmete struktuur\n")
+str(andmed)
+
+# Kokkuvõte
+cat("\n### Statistiline kokkuvõte\n")
+summary(andmed)
+
+# Esimesed read tabelis
+cat("\n### Esimesed 6 rida\n")
+kable(head(andmed), digits = 2)
+```
+# 3. Uuriv andmeanalüüs
+## Järgmise perioodi kindlustusmakse jaotus
+```{r, message=F, error=F, warning=F, echo=F}
+library(ggplot2)
+ggplot(andmed, aes(x = premium_next_period)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "black",
+    alpha = 0.8
+  ) +
+  labs(
+    title = "Järgmise perioodi kindlustusmakse jaotus",
+    x = "Premium (€)",
+    y = "Sagedus"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+Histogramm näitab, et kindlustusmaksete jaotus on paremale kaldu. Enamik klientide makseid jääb vahemikku ligikaudu 200–350 eurot, kuid esineb ka kõrgemaid väärtusi, mis viitavad suurema riskiga klientidele.
+
+## Suitsetaja mõju järgmise perioodi maksele
+```{r, message=F, error=F, warning=F, echo=F}
+ggplot(andmed, aes(x = smoker, y = premium_next_period, fill = smoker)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Premium suitsetamise lõikes",
+    x = "Suitsetaja",
+    y = "Premium (€)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+Karpdiagramm näitab selget erinevust suitsetajate ja mittesuitsetajate vahel. Suitsetajatel on oluliselt kõrgemad kindlustusmaksed ning suurem varieeruvus, mis viitab kõrgemale riskitasemele.
+
+## Seos eelneva kuue kuu perioodi maksetega
+```{r, message=F, error=F, warning=F, echo=F}
+ggplot(andmed, aes(x = claims_last_6m, y = premium_next_period)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_smooth(method = "lm", color = "red", linewidth = 1) +
+  labs(
+    title = "Viimase 6 kuu kulud vs järgmise perioodi premium",
+    x = "Viimase 6 kuu kulud (€)",
+    y = "Järgmise perioodi premium (€)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+Graafik näitab tugevat positiivset seost viimase kuue kuu ravikulude ja järgmise perioodi kindlustusmakse vahel. Mida suuremad on hiljutised kulud, seda kõrgem on prognoositav premium. See on kooskõlas kindlustusloogikaga, kus kõrgem risk toob kaasa suuremad maksed. Seos on väga tugev, mis viitab sellele, et andmestik on osaliselt sünteetiline ning kulud mõjutavad premiumit otseselt.
+
+# 4. Andmete ettevalmistus
+```{r, message=F, error=F, warning=F}
+andmed$smoker <- as.factor(andmed$smoker)
+```
+# 5. Mudelid
+## Lineaarne regressioon
+```{r, message=F, error=F, warning=F}
+model <- lm(
+  premium_next_period ~ age + bmi + smoker + claims_last_3m + claims_last_6m,
+  data = andmed
+)
+
+summary(model)
+```
+Lineaarse regressioonimudeli tulemused näitavad, et kõige olulisemad tegurid järgmise perioodi kindlustusmakse kujunemisel on suitsetamine ja viimase kuue kuu ravikulud.
+
+Suitsetajatel on keskmiselt ligikaudu 100 euro võrra kõrgem kindlustusmakse. Samuti suureneb premium proportsionaalselt viimaste kuude ravikuludega, mis on kooskõlas kindlustusloogikaga, kus suurem risk toob kaasa kõrgemad maksed.
+
+Mudeli selgitusvõime on väga kõrge (R² on umbes 0.98), mis viitab tugevale seosele sisendtunnuste ja sihtmuutuja vahel. Samas võib nii kõrge väärtus viidata ka sellele, et andmestik on osaliselt sünteetiline.
+
+Kuna andmestik on simuleeritud, võib seos kulude ja premiumi vahel olla tugevam kui reaalses elus.
+
+### Ennustatud vs reaalne graafik lineaarsele regressioonile
+```{r, message=F, error=F, warning=F}
+# Ennustused
+pred <- predict(model, andmed)
+
+ggplot(data = andmed, aes(x = premium_next_period, y = pred)) +
+  geom_point(alpha = 0.35, color = "blue", size = 1.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linewidth = 1) +
+  labs(
+    title = "Tegelik vs prognoositud premium",
+    x = "Tegelik premium (€)",
+    y = "Prognoositud premium (€)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+Graafik kujutab tegelike ja prognoositud kindlustusmaksete võrdlust. Ideaalis paikneksid kõik punktid diagonaalsel sirgel, mis tähistab täiuslikku ennustust.
+
+Antud juhul paiknevad punktid väga tihedalt ümber diagonaali, mis viitab sellele, et mudel suudab premiumit väga täpselt prognoosida. See on kooskõlas ka kõrge R² väärtusega.
+
+Väikesed kõrvalekalded joonest näitavad mudeli prognoosivigu, kuid üldine sobivus on väga hea.
+
+## Random forest
+```{r, message=F, error=F, warning=F}
+library(randomForest)
+
+rf_model <- randomForest(
+  premium_next_period ~ age + bmi + smoker + claims_last_6m,
+  data = andmed,
+  ntree = 200
+)
+print(rf_model)
+```
+Random Forest mudel suutis selgitada ligikaudu 95% andmete varieeruvusest, mis näitab head prognoosivõimet.
+
+Võrreldes lineaarse regressioonimudeliga oli Random Forest veidi vähem täpne. See viitab sellele, et andmestikus olevad seosed on suuresti lineaarsed ning keerukam mudel ei anna antud juhul märkimisväärset eelist.
+
+Tulemus näitab, et lihtsam lineaarne mudel võib mõnikord toimida sama hästi või isegi paremini kui keerukamad masinõppe meetodid, eriti kui andmete struktuur on lineaarne.
+
+### Ennustatud vs reaalne graafik Random Forest mudelile
+```{r, message=F, error=F, warning=F}
+rf_pred <- predict(rf_model, andmed)
+ggplot(andmed, aes(x = premium_next_period, y = rf_pred)) +
+  geom_point(alpha = 0.4, color = "black") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(
+    title = "Random Forest: tegelik vs prognoositud premium",
+    x = "Tegelik premium",
+    y = "Prognoositud premium"
+  ) +
+  theme_minimal()
+```
+Graafik näitab Random Forest mudeli prognooside ja tegelike väärtuste võrdlust. Punktid paiknevad küll suhteliselt lähedal diagonaalile, kuid hajuvus on suurem võrreldes lineaarse mudeliga.
+
+Eriti on näha, et suuremate premium väärtuste korral kaldub mudel prognoose alahindama. See viitab sellele, et Random Forest mudel ei suuda antud andmestikus lineaarset seost sama täpselt tabada kui lineaarne regressioon.
+
+Võrreldes lineaarse regressiooniga on Random Forest mudel antud juhul veidi vähem täpne. See viitab sellele, et andmestikus esinevad seosed on peamiselt lineaarsed ning keerukam mudel ei anna märkimisväärset eelist.
+
+
+Graafik võrdleb lineaarse regressiooni ja Random Forest mudeli prognoose. Mõlemad mudelid suudavad premiumit hästi ennustada, kuid lineaarne mudel paikneb lähemal ideaalsele diagonaalile, mis viitab paremale täpsusele.
+
+## XGBoost mudel
+
+XGBoost mudelit kasutati täiendava võrdlusena, kuna tegemist on võimsa gradient boosting meetodiga, mis suudab modelleerida keerukaid ja mittelineaarseid seoseid. Mudel treeniti samade tunnuste põhjal nagu eelnevad mudelid.
+
+Mudeli prognoosiviga (RMSE) on järgmine:
+```{r, message=F, error=F, warning=F}
+library(xgboost)
+library(dplyr)
+library(ggplot2)
+df_xgb <- andmed %>%
+  mutate(
+    smoker = ifelse(smoker == "yes", 1, 0)
+  )
+
+# matrix
+X <- as.matrix(df_xgb[, c("age", "bmi", "smoker", "claims_last_6m")])
+y <- df_xgb$premium_next_period
+
+xgb_model <- xgboost(
+  data = X,
+  label = y,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+xgb_pred <- predict(xgb_model, X)
+
+ggplot(andmed, aes(x = premium_next_period, y = xgb_pred)) +
+  geom_point(alpha = 0.4, color = "purple") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(
+    title = "XGBoost: tegelik vs prognoositud premium",
+    x = "Tegelik premium",
+    y = "Prognoositud premium"
+  ) +
+  theme_minimal()
+
+
+
+xgb_rmse <- sqrt(mean((andmed$premium_next_period - xgb_pred)^2))
+
+cat("XGBoost RMSE:", round(xgb_rmse, 2))
+
+
+
+
+```
+Graafik kujutab XGBoost mudeli prognoositud ja tegelike kindlustusmaksete võrdlust. Punktid paiknevad peaaegu täielikult diagonaalsel sirgel, mis viitab väga kõrgele prognoositäpsusele.
+
+See tähendab, et mudel suudab sisuliselt väga täpselt taastoota tegelikke premium väärtusi. Hajuvus diagonaali ümber on minimaalne, mis näitab väikest prognoosiviga.
+
+Võrreldes varasemate mudelitega on XGBoost kõige täpsem, kuna see suudab modelleerida keerukamaid seoseid tunnuste ja sihtmuutuja vahel.
+
+Samas tuleb arvestada, et andmestik on sünteetiliselt genereeritud, mistõttu võivad seosed olla tugevamad ja lihtsamad kui reaalses elus. Seetõttu võib mudeli täpsus olla mõnevõrra ülehinnatud.
+
+## Mudelite võrdlus
+```{r, message=F, error=F, warning=F}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+
+# Mudelite võrdluse andmed
+plot_data <- andmed %>%
+  mutate(
+    LM = pred,
+    RF = rf_pred,
+    XGB = xgb_pred
+  ) %>%
+  pivot_longer(
+    cols = c(LM, RF, XGB),
+    names_to = "model",
+    values_to = "prediction"
+  )
+
+# Graafik
+ggplot(plot_data, aes(x = premium_next_period, y = prediction, color = model)) +
+  geom_point(alpha = 0.35) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linewidth = 1) +
+  scale_color_manual(
+    values = c(
+      "LM" = "blue",
+      "RF" = "black",
+      "XGB" = "red"
+    ),
+    labels = c(
+      "LM" = "Linear Regression",
+      "RF" = "Random Forest",
+      "XGB" = "XGBoost"
+    )
+  ) +
+  labs(
+    title = "Mudelite võrdlus",
+    x = "Tegelik premium (€)",
+    y = "Prognoositud premium (€)",
+    color = "Mudel"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "top"
+  )
+
+# RMSE arvutamine
+rmse_table <- data.frame(
+  Mudel = c("Linear Regression", "Random Forest", "XGBoost"),
+  RMSE = c(
+    sqrt(mean((andmed$premium_next_period - pred)^2)),
+    sqrt(mean((andmed$premium_next_period - rf_pred)^2)),
+    sqrt(mean((andmed$premium_next_period - xgb_pred)^2))
+  )
+)
+
+# Ilus tabel
+kable(rmse_table, digits = 2, caption = "Mudelite RMSE võrdlus")
+```
+Mudelite võrdlusgraafik näitab kolme erineva mudeli – lineaarse regressiooni, Random Forest’i ja XGBoost’i – prognooside vastavust tegelikele kindlustusmaksetele. Ideaalis paikneksid kõik punktid diagonaalsel sirgel, mis tähistab täiuslikku ennustust.
+
+Graafikult on näha, et XGBoost mudeli prognoosid (punane) paiknevad kõige tihedamalt diagonaali ümber, mis viitab väga kõrgele täpsusele. Lineaarne regressioon (sinine) annab samuti väga häid tulemusi, kuid hajuvus on veidi suurem. Random Forest (roheline) näitab kõige suuremat hajuvust, eriti kõrgemate premium väärtuste juures, kus mudel kipub prognoose alahindama.
+
+RMSE väärtused kinnitavad visuaalset hinnangut. XGBoost mudel saavutas kõige väiksema vea (RMSE ≈ 6.43), mis tähendab, et selle keskmine prognoosiviga on ligikaudu 6 eurot. Lineaarse regressiooni mudeli RMSE (≈ 20.20) on suurem, kuid siiski suhteliselt madal, mis viitab heale sobivusele. Random Forest mudelil on suurim RMSE (≈ 29.31), mis näitab, et see on antud andmestikus kõige vähem täpne.
+
+Tulemused näitavad, et XGBoost suudab modelleerida andmetes esinevaid seoseid kõige täpsemalt. Samas tuleb arvestada, et andmestik on sünteetiline ning seosed võivad olla lihtsamad ja tugevamad kui reaalses maailmas. Seetõttu võib XGBoost mudeli väga kõrge täpsus olla osaliselt tingitud andmete genereerimise viisist.
+
+Kokkuvõttes võib järeldada, et kuigi keerukamad mudelid nagu XGBoost võivad saavutada parima täpsuse, pakub lineaarne regressioon lihtsamat ja paremini tõlgendatavat alternatiivi, mis toimib antud juhul samuti väga hästi.
+
+# 6. Kokkuvõte
+Käesoleva projekti eesmärk oli prognoosida järgmise perioodi tervisekindlustusmakset, kasutades kliendi demograafilisi tunnuseid ja varasemaid ravikulusid. Kuna algandmestik ei sisaldanud ajamõõdet, loodi sünteetiline ajajoon ning arvutati kulupõhised tunnused, nagu viimase kolme ja kuue kuu kulud.
+
+Uuriv andmeanalüüs näitas, et kindlustusmaksete jaotus on paremale kaldu ning kõrgema riskiga klientidel esineb märkimisväärselt suuremaid makseid. Samuti ilmnes tugev positiivne seos viimaste ravikulude ja järgmise perioodi premiumi vahel.
+
+Mudelite võrdlemisel selgus, et lineaarne regressioonimudel saavutas väga kõrge selgitusvõime (R² ≈ 0.98) ning suutis premiumit täpselt prognoosida. Random Forest mudel andis samuti häid tulemusi, kuid jäi täpsuselt veidi alla lineaarsele mudelile. See viitab sellele, et andmestikus esinevad seosed on valdavalt lineaarsed ning keerukamad mudelid ei pruugi alati anda paremaid tulemusi.
+
+Tulemustest võib järeldada, et kõige olulisemad tegurid kindlustusmakse kujunemisel on kliendi suitsetamisharjumus ja hiljutised ravikulud, mis on kooskõlas kindlustusloogikaga, kus kõrgem risk tähendab kõrgemat makset.
+
+Projekti piiranguks on asjaolu, et kasutatud andmestik on osaliselt sünteetiline, mistõttu võivad seosed olla tugevamad kui reaalses elus. Sellest hoolimata demonstreerib projekt edukalt masinõppe töövoogu, sealhulgas andmete ettevalmistust, feature engineering’ut, mudelite treenimist ning tulemuste hindamist.
